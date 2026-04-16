@@ -10,80 +10,175 @@ app = Flask(__name__)
 # =========================
 # 🔥 CORE LOGIC (UPDATED)
 # =========================
+import math
+
+import math
+
+# -------------------------------------------------
+# 🔥 STEP 1: BEST COMBINATION (Knapsack DP)
+# -------------------------------------------------
+
+import math
+
+# -------------------------------------------------
+# 🔥 STEP 1: BEST COMBINATION (Knapsack DP)
+# -------------------------------------------------
+def best_coil_combination(sizes, max_width, max_use):
+    dp = {0: [0] * len(sizes)}
+
+    for i, size in enumerate(sizes):
+        new_dp = dp.copy()
+
+        for width, counts in dp.items():
+            k = 1
+            while True:
+                new_width = width + size * k
+
+                if new_width > max_width:
+                    break
+
+                if k > max_use[size]:
+                    break
+
+                new_counts = counts.copy()
+                new_counts[i] += k
+
+                if new_width not in new_dp:
+                    new_dp[new_width] = new_counts
+
+                k += 1
+
+        dp = new_dp
+
+    best_width = max(dp.keys())
+    return best_width, dp[best_width]
+
+
+# -------------------------------------------------
+# 🚀 MAIN MULTI-COIL PLANNER
+# -------------------------------------------------
 def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION):
 
-    print("\n🚀 Starting Planning...")
-    print("Input Order:", order)
+    print("\n🚀 Production Planning Started...\n")
+
+    # Normalize
+    order = [(int(round(size)), weight) for size, weight in order]
+    master_width = int(round(master_width))
 
     weight_per_mm_kg = (COIL_WEIGHT * 1000) / master_width
 
-    # Step 1: Calculate required slits
-    requirements = []
+    demand_slits = {}
+    weight_per_slit_map = {}
+
+    # Convert MT → slits
     for size, demand_mt in order:
         weight_per_slit = (size * weight_per_mm_kg) / 1000
 
-        min_required = (demand_mt - TOLERANCE) / weight_per_slit
-        slits = math.ceil(min_required)
+        min_slits = max(1, math.ceil((demand_mt - TOLERANCE) / weight_per_slit))
 
-        requirements.append({
-            "size": size,
-            "slits_remaining": slits,
-            "weight_per_slit": weight_per_slit
-        })
+        demand_slits[size] = min_slits
+        weight_per_slit_map[size] = weight_per_slit
 
-        print(f"📦 Size {size} → Need {slits} slits")
+        print(f"📦 Size {size} → Required Slits: {min_slits}")
 
+    sizes = sorted(demand_slits.keys())
     plans = []
 
-    # Step 2: Create coils
-    while any(r["slits_remaining"] > 0 for r in requirements):
+    # 🔒 Safety
+    max_iterations = 50
+    iteration = 0
 
-        remaining_width = master_width
-        coil_plan = []
+    # -------------------------------------------------
+    # 🔁 MULTI-COIL LOOP
+    # -------------------------------------------------
+    while any(v > 0 for v in demand_slits.values()):
+
+        iteration += 1
+        if iteration > max_iterations:
+            print("❌ Safety break (infinite loop protection)")
+            break
 
         print("\n🌀 New Coil")
 
-        for r in sorted(requirements, key=lambda x: x["size"], reverse=True):
+        base_counts = [0] * len(sizes)
+        used_width = 0
 
-            size = r["size"]
-            max_fit = int(remaining_width // size)
-            needed = r["slits_remaining"]
+        # 🔥 max_use (CORRECT PLACE)
+        max_use = {}
+        for size in sizes:
+            remaining = demand_slits[size]
+            if remaining <= 0:
+                max_use[size] = 0
+            else:
+                max_use[size] = remaining + 2  # small buffer
 
-            use = min(max_fit, needed)
+        # 🔹 STEP 1: Mandatory allocation
+        for i, size in enumerate(sizes):
+            if demand_slits[size] > 0:
+                base_counts[i] += 1
+                demand_slits[size] -= 1
+                used_width += size
 
-            if use > 0:
-                width_used = use * size
-                weight = use * r["weight_per_slit"]
+        remaining_width = master_width - used_width
 
-                coil_plan.append({
-                    "size": size,
-                    "slits": use,
-                    "width": width_used,
-                    "weight_per_mm": round(weight_per_mm_kg, 2),
-                    "weight_per_slit": round(r["weight_per_slit"], 2),
-                    "total_weight": round(weight, 2)
-                })
+        # 🔹 STEP 2: Optimize remaining width
+        best_width, combo = best_coil_combination(sizes, remaining_width, max_use)
 
-                r["slits_remaining"] -= use
-                remaining_width -= width_used
+        # Merge
+        final_counts = []
+        for i in range(len(sizes)):
+            final_counts.append(base_counts[i] + combo[i])
 
-                print(f"  ✔ {size}mm × {use}")
+        # 🔥 CRITICAL FIX: Reduce demand AFTER DP
+        for i, size in enumerate(sizes):
+            demand_slits[size] -= final_counts[i]
+            if demand_slits[size] < 0:
+                demand_slits[size] = 0
 
-        used_width = master_width - remaining_width
+        # 🔹 STEP 3: Build output
+        coil_plan = []
+        total_weight = 0
+
+        for i, size in enumerate(sizes):
+            slits = final_counts[i]
+            if slits == 0:
+                continue
+
+            width = slits * size
+            weight_per_slit = weight_per_slit_map[size]
+            total = slits * weight_per_slit
+
+            total_weight += total
+
+            coil_plan.append({
+                "size": size,
+                "slits": slits,
+                "width": width,
+                "weight_per_mm": round(weight_per_mm_kg, 2),
+                "weight_per_slit": round(weight_per_slit, 3),
+                "total_weight": round(total, 3)
+            })
+
+        # Sort for clean UI (like screenshot)
+        coil_plan = sorted(coil_plan, key=lambda x: x["size"])
+
+        used_width = sum(x["width"] for x in coil_plan)
+        remaining_width = master_width - used_width
         utilization = used_width / master_width
 
-        print(f"➡️ Utilization: {utilization:.2f}")
+        print(f"➡️ Used Width: {used_width}")
+        print(f"➡️ Utilization: {utilization:.4f}")
 
         plans.append({
             "coil": coil_plan,
-            "used_width": used_width,
-            "remaining_width": remaining_width,
-            "utilization": round(utilization, 3)
+            "used_width": round(used_width, 2),
+            "remaining_width": round(remaining_width, 2),
+            "utilization": round(utilization, 4),
+            "total_weight": round(total_weight, 3)
         })
 
-    print("\n✅ Planning Complete\n")
+    print("\n✅ Production Planning Complete\n")
     return plans
-
 
 # =========================
 # 🎨 FRONTEND (LIGHT UI)
