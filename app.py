@@ -123,6 +123,13 @@ def plan_multi_coil(order, master_width, coil_weight, tolerance, min_util):
         remaining = (master_width_scaled - used_scaled) / SCALE
         util = used_scaled / master_width_scaled
 
+        # 🚫 Prevent duplicate coils
+        if len(plans) > 0:
+            prev = plans[-1]["coil"]
+            curr = sorted(coil, key=lambda x: (x["size"], x["slits"]))
+        
+            if prev == curr:
+                break
         plans.append({
             "coil": sorted(coil, key=lambda x: x["size"]),
             "used_width": round(used,2),
