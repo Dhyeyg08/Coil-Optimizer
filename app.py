@@ -157,7 +157,7 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
                 "size": round(size / SCALE,2),
                 "slits": slits,
                 # "width": width,
-                "width": round(width/SCALE,2,
+                "width": round(width/SCALE,2),
                 "weight_per_mm": round(weight_per_mm_kg, 2),
                 "weight_per_slit": round(weight_per_slit, 3),
                 "total_weight": round(total, 3)
@@ -166,7 +166,8 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
         # Sort for clean UI (like screenshot)
         coil_plan = sorted(coil_plan, key=lambda x: x["size"])
 
-        used_width = sum(x["width"] for x in coil_plan)
+        # used_width = sum(x["width"] for x in coil_plan)
+        used_width = sum(int(x["width"] * SCALE) for x in coil_plan)
         remaining_width = master_width - used_width
         utilization = used_width / master_width
 
