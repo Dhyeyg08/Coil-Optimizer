@@ -67,7 +67,7 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
     order = [(int(round(size * SCALE)), weight) for size, weight in order]
     master_width = int(round(master_width * SCALE))
 
-    weight_per_mm_kg = (COIL_WEIGHT * 1000) / master_width / SCALE
+    weight_per_mm_kg = (COIL_WEIGHT * 1000) / (master_width / SCALE)
 
     demand_slits = {}
     weight_per_slit_map = {}
@@ -133,7 +133,8 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
 
         # 🔥 CRITICAL FIX: Reduce demand AFTER DP
         for i, size in enumerate(sizes):
-            demand_slits[size] -= final_counts[i]
+            # demand_slits[size] -= final_counts[i]
+            demand_slits[size] -= combo[i]
             if demand_slits[size] < 0:
                 demand_slits[size] = 0
 
@@ -167,7 +168,9 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
         coil_plan = sorted(coil_plan, key=lambda x: x["size"])
 
         # used_width = sum(x["width"] for x in coil_plan)
-        used_width = sum(int(x["width"] * SCALE) for x in coil_plan)
+        # used_width = sum(int(x["width"] * SCALE) for x in coil_plan)
+        # remaining_width = master_width - used_width
+        used_width = sum(x["width"] * SCALE for x in coil_plan)
         remaining_width = master_width - used_width
         utilization = used_width / master_width
 
