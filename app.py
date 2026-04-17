@@ -141,106 +141,222 @@ HTML = """
 <html>
 <head>
 <title>Coil Optimizer</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
 <style>
-body{font-family:Segoe UI;background:#f8fafc;padding:20px;}
-.card{background:white;padding:20px;border-radius:10px;margin-bottom:20px;}
-input{padding:10px;margin:5px;}
-button{padding:10px;margin:5px;}
-table{width:100%;margin-top:10px;border-collapse:collapse;}
-th,td{padding:8px;border-bottom:1px solid #ddd;text-align:center;}
-.total{font-weight:bold;color:green;}
+body {
+  font-family:'Segoe UI';
+  background:#f8fafc;
+  color:#1e293b;
+  padding:20px;
+}
+
+.container {
+  max-width:900px;
+  margin:auto;
+}
+
+.card {
+  background:white;
+  padding:20px;
+  border-radius:12px;
+  margin-bottom:20px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+
+input {
+  padding:10px;
+  margin:6px;
+  border-radius:6px;
+  border:1px solid #e2e8f0;
+  width:140px;
+}
+
+button {
+  padding:10px 15px;
+  border-radius:6px;
+  border:none;
+  cursor:pointer;
+}
+
+.btn-primary {background:#22c55e;color:white;}
+.btn-secondary {background:#3b82f6;color:white;}
+.btn-danger {background:#ef4444;color:white;}
+
+table {
+  width:100%;
+  border-collapse:collapse;
+  margin-top:10px;
+}
+
+th {
+  font-weight:700;
+  background:#f1f5f9;
+}
+
+th,td {
+  padding:10px;
+  border-bottom:1px solid #e2e8f0;
+  text-align:center;
+}
+
+.coil-card {
+  background:white;
+  padding:15px;
+  margin-top:15px;
+  border-radius:10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.04);
+}
+
+.total-text {
+  font-weight:700;
+  color:#16a34a;
+}
+
+.input-wrapper {
+  position: relative;
+  display: inline-block;
+}
+
+.input-wrapper input {
+  padding: 10px 40px 10px 10px;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.input-wrapper span {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #64748b;
+  font-size: 13px;
+}
 </style>
 </head>
-
 <body>
-<h2>Coil Optimization</h2>
+<div class="container">
+<h1>Coil Optimization System</h1>
 
 <div class="card">
-<input id="mw" placeholder="Master Width (mm)">
-<input id="cw" placeholder="Coil Weight (MT)">
-<input id="tol" placeholder="Tolerance (Kg)">
-<input id="util" placeholder="Min Util %">
+<div class="input-wrapper">
+  <input id="master_width" placeholder="Master Width">
+  <span>mm</span>
+</div>
+
+<div class="input-wrapper">
+  <input id="coil_weight" placeholder="Coil Weight (MT)">
+  <span>MT</span>
+</div>
+
+<div class="input-wrapper">
+  <input id="tolerance" placeholder="Tolerance (Kg)">
+  <span>Kg</span>
+</div>
+
+<div class="input-wrapper">
+  <input id="min_utilization" placeholder="Min Utilization %">
+  <span>%</span>
+</div>
 </div>
 
 <div class="card">
-<table id="tbl">
-<tr><th>Size (mm)</th><th>Weight (MT)</th><th></th></tr>
+<table id="orderTable">
+<tr><th>Size (mm)</th><th>Weight (MT)</th><th>Action</th></tr>
 </table>
-<button onclick="add()">+ Add</button>
+<button class="btn-secondary" onclick="addRow()">+ Add Row</button>
 </div>
 
-<button onclick="run()">Generate</button>
+<button class="btn-primary" onclick="generate()">Generate Plan</button>
 
-<div id="out"></div>
+<div id="output"></div>
+
+<button class="btn-secondary" onclick="downloadExcel()">Download Excel</button>
+</div>
 
 <script>
-function add(){
- let r=document.getElementById("tbl").insertRow();
- r.innerHTML=`<td><input></td><td><input></td><td><button onclick="this.parentElement.parentElement.remove()">X</button></td>`;
+function addRow(size="", weight="") {
+  const table = document.getElementById("orderTable");
+  const row = table.insertRow();
+
+  row.innerHTML = `
+    <td><input value="${size}"> mm</td>
+    <td><input value="${weight}"> MT</td>
+    <td><button onclick="this.parentElement.parentElement.remove()">X</button></td>
+  `;
 }
-add(); add();
+addRow(); addRow();
 
-async function run(){
- let rows=document.querySelectorAll("#tbl tr");
- let order=[];
- rows.forEach((r,i)=>{
-  if(i==0)return;
-  let i1=r.children[0].querySelector("input").value;
-  let i2=r.children[1].querySelector("input").value;
-  if(i1&&i2)order.push([parseFloat(i1),parseFloat(i2)]);
- });
+async function generate(){
+  const rows=document.querySelectorAll("#orderTable tr");
+  let order=[];
 
- let res=await fetch("/plan",{method:"POST",headers:{"Content-Type":"application/json"},
- body:JSON.stringify({
- master_width:mw.value,
- coil_weight:cw.value,
- tolerance:tol.value,
- min_utilization:util.value,
- order:order
- })});
+  rows.forEach((row,i)=>{
+    if(i===0)return;
+    const inputs=row.querySelectorAll("input");
+    const s=parseFloat(inputs[0].value);
+    const w=parseFloat(inputs[1].value);
+    if(!isNaN(s)&&!isNaN(w)) order.push([s,w]);
+  });
 
- let data=await res.json();
- window.data=data;
+  const payload={
+    master_width:document.getElementById("master_width").value,
+    coil_weight:document.getElementById("coil_weight").value,
+    tolerance:document.getElementById("tolerance").value,
+    min_utilization:document.getElementById("min_utilization").value,
+    order:order
+  };
 
- let out=document.getElementById("out");
- out.innerHTML="";
+  const res=await fetch("/plan",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(payload)});
+  const data=await res.json();
+  window.latestPlans=data;
 
- data.forEach((c,i)=>{
- let html=`<div class="card">
- <h3>Coil ${i+1}</h3>
- Used: ${c.used_width} mm | Remaining: ${c.remaining_width} mm
- <div class="total">Weight: ${c.total_weight} MT</div>
- <table>
- <tr><th>Size</th><th>Slits</th><th>Width</th><th>Total</th></tr>`;
-
- c.coil.forEach(x=>{
- html+=`<tr>
- <td>${x.size}</td>
- <td>${x.slits}</td>
- <td>${x.width}</td>
- <td>${x.total_weight}</td>
- </tr>`;
- });
-
- html+="</table></div>";
- out.innerHTML+=html;
- });
+  render(data);
 }
 
-async function download(){
- let res=await fetch("/export",{method:"POST",
- headers:{"Content-Type":"application/json"},
- body:JSON.stringify(window.data)});
- let blob=await res.blob();
- let a=document.createElement("a");
- a.href=URL.createObjectURL(blob);
- a.download="plan.xlsx";
- a.click();
+function render(data){
+  const out=document.getElementById("output");
+  out.innerHTML="<h2>Results</h2>";
+
+  data.forEach((c,i)=>{
+    let total = c.coil.reduce((a,b)=>a+b.total_weight,0);
+
+    let html=`<div class="coil-card">
+    <h3>Coil ${i+1}</h3>
+    <p>Used Width: <b>${c.used_width} mm</b></p>
+    <p>Remaining: <b>${c.remaining_width} mm</b></p>
+    <p class="total-text">Total Coil Weight: ${total.toFixed(2)} MT</p>
+
+    <table>
+    <tr>
+    <th>Size</th><th>Slits</th><th>Width</th><th>Wt/mm</th><th>Wt/Slit</th><th>Total</th>
+    </tr>`;
+
+    c.coil.forEach(it=>{
+      html+=`<tr>
+<td>${it.size} mm</td>
+<td>${it.slits}</td>
+<td>${it.width} mm</td>
+<td>${it.weight_per_mm} kg</td>
+<td>${it.weight_per_slit} MT</td>
+<td>${it.total_weight} MT</td>
+</tr>`;
+    });
+
+    html+="</table></div>";
+    out.innerHTML+=html;
+  });
+}
+
+async function downloadExcel(){
+  const res=await fetch("/export",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(window.latestPlans)});
+  const blob=await res.blob();
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="coil_plan.xlsx";
+  a.click();
 }
 </script>
-
-<button onclick="download()">Download Excel</button>
-
 </body>
 </html>
 """
