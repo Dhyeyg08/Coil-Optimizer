@@ -62,10 +62,12 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
     print("\n🚀 Production Planning Started...\n")
 
     # Normalize
-    order = [(int(round(size)), weight) for size, weight in order]
-    master_width = int(round(master_width))
+    # order = [(int(round(size)), weight) f
+    SCALE = 10
+    order = [(int(round(size * SCALE)), weight) for size, weight in order]
+    master_width = int(round(master_width * SCALE))
 
-    weight_per_mm_kg = (COIL_WEIGHT * 1000) / master_width
+    weight_per_mm_kg = (COIL_WEIGHT * 1000) / master_width / SCALE
 
     demand_slits = {}
     weight_per_slit_map = {}
@@ -151,9 +153,11 @@ def plan_multi_coil(order, master_width, COIL_WEIGHT, TOLERANCE, MIN_UTILIZATION
             total_weight += total
 
             coil_plan.append({
-                "size": size,
+                # "size": size,
+                "size": round(size / SCALE,2),
                 "slits": slits,
-                "width": width,
+                # "width": width,
+                "width": round(width/SCALE,2,
                 "weight_per_mm": round(weight_per_mm_kg, 2),
                 "weight_per_slit": round(weight_per_slit, 3),
                 "total_weight": round(total, 3)
