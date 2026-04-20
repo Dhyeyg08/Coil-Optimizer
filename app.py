@@ -1,144 +1,137 @@
 from flask import Flask, request, render_template_string, jsonify, send_file
+
 import io
+
 import math
+
 from openpyxl import Workbook
+
 from openpyxl.styles import Font, Alignment
 
 app = Flask(__name__)
 
-# =====================================================
-# ⚙️ CONFIG (INDUSTRY STANDARD)
-# =====================================================
-SCALE = 10   # 0.1 mm precision
+SCALE = 10  # 0.1 mm precision
 
 # =====================================================
-# 🔥 KNAPSACK OPTIMIZER
-# =====================================================
-def best_combination(sizes, max_width, max_use):
-    dp = {0: [0]*len(sizes)}
 
-    for i, size in enumerate(sizes):
-        new_dp = dp.copy()
-
-        for width, counts in dp.items():
-            for k in range(1, max_use[size] + 1):
-                new_width = width + size*k
-                if new_width > max_width:
-                    break
-
-                new_counts = counts.copy()
-                new_counts[i] += k
-
-                if new_width not in new_dp:
-                    new_dp[new_width] = new_counts
-
-        dp = new_dp
-
-    best_width = max(dp.keys())
-    return best_width, dp[best_width]
+# 🔥 EXACT DEMAND-DRIVEN PLANNER (WITH DEBUG)
 
 # =====================================================
-# 🚀 MAIN PLANNER
-# =====================================================
-def plan_multi_coil(order, master_width, coil_weight, tolerance, min_util):
 
-    # 🔹 SCALE INPUTS
-    order = [(int(round(s*SCALE)), w) for s, w in order]
-    master_width_scaled = int(round(master_width*SCALE))
+def exact_plan(order, master_width, coil_weight, tolerance, min_util):
 
-    # 🔹 Weight per mm (REAL mm)
-    weight_per_mm = (coil_weight*1000) / master_width
+    weight_per_mm = (coil_weight * 1000) / master_width
 
-    # 🔹 Convert demand → slits
-    demand = {}
-    weight_per_slit_map = {}
+    sizes = [s for s, _ in order]
+    demands = {s: d for s, d in order}
 
-    for size, wt in order:
-        real_size = size / SCALE
-        wps = (real_size * weight_per_mm) / 1000
-        slits = max(1, math.ceil((wt - tolerance) / wps))
+    wps_map = {s: (s * weight_per_mm) / 1000 for s in sizes}
 
-        demand[size] = slits
-        weight_per_slit_map[size] = wps
+    best_plan = None
+    best_score = -1e18
 
-    sizes = sorted(demand.keys())
-    plans = []
+    # max slits possible per size (safe upper bound)
+    max_slits = {
+        s: int((demands[s] + tolerance) / wps_map[s]) + 2
+        for s in sizes
+    }
 
-    while any(v > 0 for v in demand.values()):
+    def backtrack(i, current_plan, used_width, produced):
 
-        base = [0]*len(sizes)
-        used_width = 0
+        nonlocal best_plan, best_score
 
-        # 🔹 Mandatory 1 slit each
-        for i, size in enumerate(sizes):
-            if demand[size] > 0:
-                base[i] += 1
-                demand[size] -= 1
-                used_width += size
+        # ❌ width overflow
+        if used_width > master_width:
+            return
 
-        remaining = master_width_scaled - used_width
+        # if all sizes processed
+        if i == len(sizes):
 
-        max_use = {s: demand[s]+2 for s in sizes}
+            util = used_width / master_width
+            if util < min_util:
+                return
 
-        best_w, combo = best_combination(sizes, remaining, max_use)
+            # tolerance check
+            for s in sizes:
+                if produced[s] > demands[s] + tolerance:
+                    return
 
-        final = [base[i] + combo[i] for i in range(len(sizes))]
+            # 🎯 scoring
+            width_score = used_width
+            demand_score = 0
 
-        # 🔹 Reduce demand (ONLY combo)
-        for i, size in enumerate(sizes):
-            demand[size] -= combo[i]
-            if demand[size] < 0:
-                demand[size] = 0
+            for s in sizes:
+                demand_score -= abs(produced[s] - demands[s])
 
-        # 🔹 Build coil
-        coil = []
-        total_weight = 0
-        used_scaled = 0
+            score = width_score * 1000 + demand_score * 100
 
-        for i, size in enumerate(sizes):
-            slits = final[i]
-            if slits == 0:
-                continue
+            if score > best_score:
+                best_score = score
+                best_plan = current_plan.copy()
 
-            width_scaled = slits * size
-            real_size = size / SCALE
-            real_width = width_scaled / SCALE
+            return
 
-            wps = weight_per_slit_map[size]
-            total = slits * wps
+        size = sizes[i]
+        wps = wps_map[size]
 
-            total_weight += total
-            used_scaled += width_scaled
+        for slits in range(max_slits[size] + 1):
 
-            coil.append({
-                "size": round(real_size,2),
-                "slits": slits,
-                "width": round(real_width,2),
-                "weight_per_mm": round(weight_per_mm,2),
-                "weight_per_slit": round(wps,3),
-                "total_weight": round(total,3)
-            })
+            new_width = used_width + slits * size
 
-        used = used_scaled / SCALE
-        remaining = (master_width_scaled - used_scaled) / SCALE
-        util = used_scaled / master_width_scaled
+            new_produced = produced.copy()
+            new_produced[size] += slits * wps
 
-        # 🚫 Prevent duplicate coils
-        if len(plans) > 0:
-            prev = plans[-1]["coil"]
-            curr = sorted(coil, key=lambda x: (x["size"], x["slits"]))
-        
-            if prev == curr:
-                break
-        plans.append({
-            "coil": sorted(coil, key=lambda x: x["size"]),
-            "used_width": round(used,2),
-            "remaining_width": round(remaining,2),
-            "utilization": round(util,4),
-            "total_weight": round(total_weight,3)
+            current_plan[size] = slits
+
+            backtrack(i + 1, current_plan, new_width, new_produced)
+
+    # start
+    backtrack(
+        0,
+        {s: 0 for s in sizes},
+        0,
+        {s: 0 for s in sizes}
+    )
+
+    if not best_plan:
+        return []
+
+    # build result
+    result = []
+    used_width = 0
+    total_weight = 0
+
+    for s in sizes:
+        slits = best_plan[s]
+        if slits == 0:
+            continue
+
+        wps = wps_map[s]
+        width = slits * s
+        total = slits * wps
+
+        used_width += width
+        total_weight += total
+
+        result.append({
+            "size": s,
+            "slits": slits,
+            "width": round(width, 2),
+            "weight_per_mm": round(weight_per_mm, 2),
+            "weight_per_slit": round(wps, 3),
+            "total_weight": round(total, 3)
         })
 
-    return plans
+    remaining = master_width - used_width
+    util = used_width / master_width
+
+    return [{
+        "coil": result,
+        "used_width": round(used_width, 2),
+        "remaining_width": round(remaining, 2),
+        "utilization": round(util, 4),
+        "total_weight": round(total_weight, 3)
+    }]
 
 # =====================================================
 # 🎨 FRONTEND
@@ -368,62 +361,115 @@ async function downloadExcel(){
 </html>
 """
 
+
+
+
+
+
 # =====================================================
+
 # ROUTES
+
 # =====================================================
+
 @app.route("/")
+
 def home():
+
     return render_template_string(HTML)
 
 @app.route("/plan", methods=["POST"])
+
 def plan_api():
+
     d = request.json
-    return jsonify(plan_multi_coil(
+
+    print("\n========== API CALLED ==========")
+
+    print("Payload:", d)
+
+    result = exact_plan(
+
         d["order"],
+
         float(d["master_width"]),
+
         float(d["coil_weight"]),
-        float(d["tolerance"])/1000,
-        float(d["min_utilization"])/100
-    ))
+
+        float(d["tolerance"]) / 1000,
+
+        float(d["min_utilization"]) / 100
+
+    )
+
+    print("========== RESPONSE ==========")
+
+    print(result)
+
+    print("================================\n")
+
+    if result:
+
+        return jsonify(result)
+
+    return jsonify({"error": "Exact plan not feasible"})
 
 @app.route("/export", methods=["POST"])
+
 def export():
+
     data = request.json
 
     wb = Workbook()
+
     ws = wb.active
 
     headers = ["Coil","Size(mm)","Slits","Width(mm)","Weight(MT)"]
+
     ws.append(headers)
 
     for c in ws[1]:
+
         c.font = Font(bold=True)
 
     tw, twt = 0,0
 
     for i,c in enumerate(data):
+
         for it in c["coil"]:
+
             tw += it["width"]
+
             twt += it["total_weight"]
+
             ws.append([i+1,it["size"],it["slits"],it["width"],it["total_weight"]])
 
     ws.append(["TOTAL","","",round(tw,2),round(twt,2)])
 
     for c in ws[ws.max_row]:
+
         c.font = Font(bold=True)
 
     for row in ws.iter_rows():
+
         for c in row:
+
             c.alignment = Alignment(horizontal="center")
 
     buf = io.BytesIO()
+
     wb.save(buf)
+
     buf.seek(0)
 
     return send_file(buf, download_name="coil_plan.xlsx", as_attachment=True)
 
 # =====================================================
+
 # RUN
+
 # =====================================================
+
 if __name__ == "__main__":
-    app.run()
+
+    app.run(debug=True)
